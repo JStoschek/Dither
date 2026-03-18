@@ -1,20 +1,22 @@
 from PIL import Image
+import os
 
 file_path = "cat.jpg"
+base_name = os.path.splitext(file_path)[0]
 img = Image.open(file_path)
 print(f"Opened: {file_path}")
 print(f"Size: {img.size[0]}x{img.size[1]}")
 print(f"Mode: {img.mode}")
 
-scale = 0.5
+scale = .25
 
 gray = img.convert("L")
 if scale != 1.0:
     new_size = (int(img.width * scale), int(img.height * scale))
     gray = gray.resize(new_size, Image.LANCZOS)
     print(f"Scaled to: {gray.size[0]}x{gray.size[1]}")
-gray.save("cat_gray.png")
-print("Saved cat_gray.png")
+gray.save(f"{base_name}_gray.png")
+print(f"Saved {base_name}_gray.png")
 
 # Floyd-Steinberg dithering
 pixels = list(gray.get_flattened_data())
@@ -40,5 +42,5 @@ for y in range(height):
 
 dithered = Image.new("L", (width, height))
 dithered.putdata([int(max(0, min(255, p))) for p in buf])
-dithered.save("cat_dithered.png")
-print("Saved cat_dithered.png")
+dithered.save(f"{base_name}_dithered_{scale}.png")
+print(f"Saved {base_name}_dithered_{scale}.png")
