@@ -6,7 +6,13 @@ print(f"Opened: {file_path}")
 print(f"Size: {img.size[0]}x{img.size[1]}")
 print(f"Mode: {img.mode}")
 
+scale = 0.5
+
 gray = img.convert("L")
+if scale != 1.0:
+    new_size = (int(img.width * scale), int(img.height * scale))
+    gray = gray.resize(new_size, Image.LANCZOS)
+    print(f"Scaled to: {gray.size[0]}x{gray.size[1]}")
 gray.save("cat_gray.png")
 print("Saved cat_gray.png")
 
