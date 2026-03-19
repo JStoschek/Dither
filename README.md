@@ -26,8 +26,8 @@ python compare.py
 
 ## Output
 
-Each script saves to `<name>_<method>_<scale>.png`.
-`compare.py` saves `<name>_compare_<scale>.png` with all methods side-by-side.
+Each script saves to `output/<name>_<method>_<scale>.png`.
+`compare.py` saves `output/<name>_compare_<scale>.png` with all methods side-by-side.
 
 ## Requirements
 

@@ -51,6 +51,6 @@ if __name__ == "__main__":
     for i, panel in enumerate(panels):
         comparison.paste(panel, (i * width, 0))
 
-    out = f"{base_name}_compare_{SCALE}.png"
+    out = f"output/{base_name}_compare_{SCALE}.png"
     comparison.save(out)
     print(f"Saved {out}")

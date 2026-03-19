@@ -19,8 +19,13 @@ def load(path, scale=1.0):
     return pixels, width, height, base_name
 
 
+OUTPUT_DIR = "output"
+
+
 def save(pixels, width, height, path):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out = os.path.join(OUTPUT_DIR, os.path.basename(path))
     img = Image.new("L", (width, height))
     img.putdata([int(max(0, min(255, p))) for p in pixels])
-    img.save(path)
-    print(f"Saved {path}")
+    img.save(out)
+    print(f"Saved {out}")
