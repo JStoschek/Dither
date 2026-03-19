@@ -3,12 +3,12 @@ from utils import load, save
 
 FILE = "cat.jpg"
 SCALE = 0.25
-NOISE = 64
+STRENGTH = .75  # 0.0 = hard threshold, 1.0 = full noise
 
 
-def dither(pixels, width, height):
+def dither(pixels, width, height, strength=STRENGTH):
     return [
-        255.0 if p + random.uniform(-NOISE, NOISE) >= 128 else 0.0
+        255.0 if p > 128 + (random.uniform(0, 255) - 128) * strength else 0.0
         for p in pixels
     ]
 
