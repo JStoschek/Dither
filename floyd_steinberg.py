@@ -1,7 +1,7 @@
 from utils import load, save
 
 FILE = "cat.jpg"
-SCALE = 0.03
+SCALE = 0.25
 
 
 def dither(pixels, width, height):
