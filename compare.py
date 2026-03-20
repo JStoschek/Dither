@@ -1,5 +1,5 @@
 from PIL import Image, ImageDraw, ImageFont
-import threshold, random_noise, blue_noise, floyd_steinberg, bayer
+import threshold, random_noise, blue_noise, floyd_steinberg, bayer, jarvis_judice_ninke
 from utils import load
 
 FILE = "cat.jpg"
@@ -7,12 +7,13 @@ SCALE = 0.25
 LABEL_HEIGHT = 20
 
 METHODS = [
-    ("threshold",       lambda p, w, h: threshold.dither(p, w, h)),
-    ("random noise",    lambda p, w, h: random_noise.dither(p, w, h)),
-    ("blue noise",      lambda p, w, h: blue_noise.dither(p, w, h)),
-    ("bayer 2x2",       lambda p, w, h: bayer.dither(p, w, h, size=2)),
-    ("bayer 4x4",       lambda p, w, h: bayer.dither(p, w, h, size=4)),
-    ("floyd-steinberg", lambda p, w, h: floyd_steinberg.dither(p, w, h)),
+    ("threshold",           lambda p, w, h: threshold.dither(p, w, h)),
+    ("random noise",        lambda p, w, h: random_noise.dither(p, w, h)),
+    ("blue noise",          lambda p, w, h: blue_noise.dither(p, w, h)),
+    ("bayer 2x2",           lambda p, w, h: bayer.dither(p, w, h, size=2)),
+    ("bayer 4x4",           lambda p, w, h: bayer.dither(p, w, h, size=4)),
+    ("floyd-steinberg",     lambda p, w, h: floyd_steinberg.dither(p, w, h)),
+    ("Jarvis Judice Ninke", lambda p, w, h: jarvis_judice_ninke.dither(p, w, h)),
 ]
 
 
