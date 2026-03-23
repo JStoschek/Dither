@@ -1,5 +1,6 @@
 .vscode/settings.json
 *.png
+*.pt
 __pycache__
 output/
 data/
