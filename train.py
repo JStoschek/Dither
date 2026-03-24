@@ -8,6 +8,7 @@ Resume training from latest checkpoint by passing --resume.
 import argparse
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -119,6 +120,9 @@ def main():
             print("No checkpoint found, starting from scratch.\n")
 
     # ── training loop ─────────────────────────────────────────────────────────
+    train_losses = []
+    val_losses   = []
+
     for epoch in range(start_epoch, EPOCHS + 1):
         lr_now = optimizer.param_groups[0]["lr"]
         print(f"Epoch {epoch}/{EPOCHS}   lr={lr_now:.2e}")
@@ -129,6 +133,9 @@ def main():
                             hvs_loss=hvs_loss, hvs_weight=args.hvs_weight)
 
         scheduler.step(vl_loss)
+
+        train_losses.append(tr_loss)
+        val_losses.append(vl_loss)
 
         print(f"  train  loss={tr_loss:.4f}")
         print(f"  valid  loss={vl_loss:.4f}")
@@ -150,6 +157,20 @@ def main():
         }, CKPT_DIR / "latest.pt")
 
         print()
+
+    # ── plot loss curves ───────────────────────────────────────────────────────
+    epochs = range(start_epoch, start_epoch + len(train_losses))
+    plt.figure()
+    plt.plot(epochs, train_losses, label="train")
+    plt.plot(epochs, val_losses,   label="val")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("DitherNet Training")
+    plt.legend()
+    plt.tight_layout()
+    plot_path = CKPT_DIR / "loss_curve.png"
+    plt.savefig(plot_path)
+    print(f"Loss curve saved to {plot_path}")
 
 
 if __name__ == "__main__":
