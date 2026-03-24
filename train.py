@@ -35,7 +35,8 @@ def get_device():
     return torch.device("cpu")
 
 
-def run_epoch(model, loader, optimizer, device, train: bool, hvs_loss=None, hvs_weight=0.0):
+def run_epoch(model, loader, optimizer, device, train: bool,
+              use_bce=True, hvs_loss=None, hvs_weight=1.0):
     model.train(train)
     ctx = torch.enable_grad() if train else torch.no_grad()
 
@@ -47,7 +48,9 @@ def run_epoch(model, loader, optimizer, device, train: bool, hvs_loss=None, hvs_
             x, y = x.to(device), y.to(device)
             logits = model(x)
 
-            loss = F.binary_cross_entropy_with_logits(logits, y)
+            loss = torch.tensor(0.0, device=device)
+            if use_bce:
+                loss = loss + F.binary_cross_entropy_with_logits(logits, y)
             if hvs_loss is not None:
                 loss = loss + hvs_weight * hvs_loss(logits, x)
 
@@ -64,9 +67,18 @@ def run_epoch(model, loader, optimizer, device, train: bool, hvs_loss=None, hvs_
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoints/latest.pt")
-    parser.add_argument("--hvs-weight", type=float, default=0.0,
-                        help="Weight for HVSLoss added on top of BCE (0 = disabled)")
+    parser.add_argument(
+        "--loss", choices=["bce", "hvs", "both"], default="bce",
+        help="Loss function: bce (default), hvs, or both",
+    )
+    parser.add_argument(
+        "--hvs-weight", type=float, default=1.0,
+        help="Weight applied to HVSLoss when --loss=both (default: 1.0)",
+    )
     args = parser.parse_args()
+
+    if args.loss != "both" and args.hvs_weight != 1.0:
+        parser.error("--hvs-weight is only used when --loss=both")
 
     device = get_device()
     print(f"Device: {device}\n")
@@ -97,10 +109,14 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
-    # ── HVS loss (optional) ───────────────────────────────────────────────────
-    hvs_loss = HVSLoss().to(device) if args.hvs_weight > 0 else None
-    if hvs_loss:
-        print(f"HVSLoss enabled  (weight={args.hvs_weight})\n")
+    # ── loss setup ────────────────────────────────────────────────────────────
+    use_bce = args.loss in ("bce", "both")
+    use_hvs = args.loss in ("hvs", "both")
+    hvs_loss = HVSLoss().to(device) if use_hvs else None
+    hvs_weight = args.hvs_weight if args.loss == "both" else 1.0
+
+    loss_desc = {"bce": "BCE only", "hvs": "HVS only", "both": f"BCE + {hvs_weight}×HVS"}[args.loss]
+    print(f"Loss: {loss_desc}\n")
 
     # ── optionally resume ─────────────────────────────────────────────────────
     start_epoch = 1
@@ -128,9 +144,9 @@ def main():
         print(f"Epoch {epoch}/{EPOCHS}   lr={lr_now:.2e}")
 
         tr_loss = run_epoch(model, train_loader, optimizer, device, train=True,
-                            hvs_loss=hvs_loss, hvs_weight=args.hvs_weight)
+                            use_bce=use_bce, hvs_loss=hvs_loss, hvs_weight=hvs_weight)
         vl_loss = run_epoch(model, valid_loader, optimizer, device, train=False,
-                            hvs_loss=hvs_loss, hvs_weight=args.hvs_weight)
+                            use_bce=use_bce, hvs_loss=hvs_loss, hvs_weight=hvs_weight)
 
         scheduler.step(vl_loss)
 
