@@ -4,12 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _make_hvs_gaussian(sigma: float = 1.5, size: int = 9) -> np.ndarray:
-    """
-    Gaussian approximation of the HVS lowpass blur, normalised to sum = 1
-    (unit DC gain).  sigma = 1.5 px puts the −3 dB point at ≈ 0.11 c/px
-    (≈ 3.5 cpd at 33 ppd), roughly where the CSF rolls off.
-    """
+def _make_gaussian(sigma: float, size: int) -> np.ndarray:
     k = size // 2
     y, x = np.mgrid[-k:k+1, -k:k+1]
     g = np.exp(-(x**2 + y**2) / (2.0 * sigma**2))
@@ -20,38 +15,62 @@ def _ste_binarize(soft: torch.Tensor) -> torch.Tensor:
     """
     Straight-through estimator: forward pass returns hard binary {0, 1},
     backward pass passes gradients through as if no thresholding happened.
-
-    Without this, the model can cheat the HVS loss by outputting continuous
-    values ≈ gray (blur(soft) ≈ blur(gray) → loss ≈ 0), which thresholds
-    to hard threshold dithering.  With STE the loss evaluates the actual
-    binary pattern, so the model must learn to arrange 0s and 1s such that
-    blur(binary) ≈ blur(gray) — which IS dithering.
     """
     binary = (soft > 0.5).float()
-    return binary + (soft - soft.detach())  # forward: binary, backward: ∂soft
+    return binary + (soft - soft.detach())
+
+
+# ── Multi-scale Gaussian HVS filter bank ─────────────────────────────────────
+#
+# sigma=0.5, size=3  → fine:   enforces correct local dot density
+# sigma=1.5, size=9  → medium: enforces texture quality (dithering grain)
+# sigma=4.0, size=25 → coarse: enforces large-area tone accuracy
+#
+_SCALES = [
+    (0.5,  3),
+    (1.5,  9),
+    (4.0, 25),
+]
 
 
 class HVSLoss(nn.Module):
     """
-    Perceptual dithering loss: MSE between the HVS-blurred **binary**
-    prediction and the HVS-blurred continuous grayscale input.
+    Multi-scale perceptual dithering loss.
 
-    Uses a straight-through estimator so the output is truly binary in
-    the forward pass (the loss sees 0s and 1s, not soft probabilities)
-    while gradients still flow through sigmoid for backprop.
+    Binarises the prediction with a straight-through estimator, then blurs
+    both the binary output and the continuous gray input with Gaussians at
+    multiple spatial scales.  MSE is computed at each scale and summed.
+
+    Fine scale  (σ=0.5): every dot must contribute correct local brightness.
+    Medium scale (σ=1.5): dot *patterns* must look uniform, not clumpy.
+    Coarse scale (σ=4.0): large-area tone must match the original image.
+
+    Together these produce output quality comparable to Floyd-Steinberg
+    without ever needing to match an FS target pixel-for-pixel.
     """
 
-    def __init__(self, sigma: float = 1.5, kernel_size: int = 9):
+    def __init__(self, scales: list[tuple[float, int]] | None = None):
         super().__init__()
-        kernel_np = _make_hvs_gaussian(sigma, kernel_size)
-        self.pad = kernel_size // 2
-        self.register_buffer(
-            "kernel",
-            torch.from_numpy(kernel_np).unsqueeze(0).unsqueeze(0),  # (1,1,K,K)
-        )
+        if scales is None:
+            scales = _SCALES
 
-    def _filter(self, x: torch.Tensor) -> torch.Tensor:
-        return F.conv2d(F.pad(x, (self.pad,) * 4, mode="reflect"), self.kernel)
+        kernels = []
+        pads = []
+        for sigma, size in scales:
+            k = _make_gaussian(sigma, size)
+            kernels.append(torch.from_numpy(k).unsqueeze(0).unsqueeze(0))
+            pads.append(size // 2)
+
+        # Store as buffers so they move to the right device with model.to(device)
+        for i, k in enumerate(kernels):
+            self.register_buffer(f"kernel_{i}", k)
+        self.pads = pads
+        self.n_scales = len(scales)
+
+    def _filter(self, x: torch.Tensor, scale_idx: int) -> torch.Tensor:
+        kernel = getattr(self, f"kernel_{scale_idx}")
+        pad = self.pads[scale_idx]
+        return F.conv2d(F.pad(x, (pad,) * 4, mode="reflect"), kernel)
 
     def forward(self, logits: torch.Tensor, gray: torch.Tensor) -> torch.Tensor:
         """
@@ -60,4 +79,9 @@ class HVSLoss(nn.Module):
             gray:   (B, 1, H, W) — grayscale input in [0, 1]
         """
         binary = _ste_binarize(torch.sigmoid(logits))
-        return F.mse_loss(self._filter(binary), self._filter(gray))
+
+        loss = torch.tensor(0.0, device=logits.device)
+        for i in range(self.n_scales):
+            loss = loss + F.mse_loss(self._filter(binary, i), self._filter(gray, i))
+
+        return loss
