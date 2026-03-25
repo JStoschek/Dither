@@ -46,7 +46,8 @@ def run_epoch(model, loader, optimizer, device, train: bool,
     with ctx:
         for x, y in tqdm(loader, desc=desc, leave=False):
             x, y = x.to(device), y.to(device)
-            logits = model(x)
+            noise = torch.rand_like(x)
+            logits = model(x, noise)
 
             loss = torch.tensor(0.0, device=device)
             if use_bce:

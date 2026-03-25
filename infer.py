@@ -38,9 +38,9 @@ def load_model(ckpt_path: Path, device: torch.device) -> DitherNet:
 
 def dither_model(model: DitherNet, img: Image.Image, device: torch.device) -> Image.Image:
     arr = np.array(img, dtype=np.float32) / 255.0
-    x = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).to(device)  # 1×1×H×W
+    gray = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).to(device)  # 1×1×H×W
     with torch.no_grad():
-        logits = model(x)
+        logits = model(gray)  # noise=None → model generates fresh noise
     binary = (logits.squeeze() > 0).cpu().numpy().astype(np.uint8) * 255
     return Image.fromarray(binary, mode="L")
 
