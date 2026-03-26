@@ -76,6 +76,11 @@ def main():
         "--hvs-weight", type=float, default=1.0,
         help="Weight applied to HVSLoss when --loss=both (default: 1.0)",
     )
+    parser.add_argument(
+        "--scale-weights", type=float, nargs=3, default=[1.0, 1.0, 1.0],
+        metavar=("FINE", "MED", "COARSE"),
+        help="Per-scale HVS loss weights: fine(σ=0.5) medium(σ=1.5) coarse(σ=4.0). Default: 1 1 1",
+    )
     args = parser.parse_args()
 
     if args.loss != "both" and args.hvs_weight != 1.0:
@@ -113,10 +118,13 @@ def main():
     # ── loss setup ────────────────────────────────────────────────────────────
     use_bce = args.loss in ("bce", "both")
     use_hvs = args.loss in ("hvs", "both")
-    hvs_loss = HVSLoss().to(device) if use_hvs else None
+    hvs_loss = HVSLoss(weights=args.scale_weights).to(device) if use_hvs else None
     hvs_weight = args.hvs_weight if args.loss == "both" else 1.0
 
     loss_desc = {"bce": "BCE only", "hvs": "HVS only", "both": f"BCE + {hvs_weight}×HVS"}[args.loss]
+    if use_hvs:
+        w = args.scale_weights
+        loss_desc += f"  scale-weights=[fine={w[0]}, med={w[1]}, coarse={w[2]}]"
     print(f"Loss: {loss_desc}\n")
 
     # ── optionally resume ─────────────────────────────────────────────────────

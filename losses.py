@@ -20,50 +20,58 @@ def _ste_binarize(soft: torch.Tensor) -> torch.Tensor:
     return binary + (soft - soft.detach())
 
 
-# ── Multi-scale Gaussian HVS filter bank ─────────────────────────────────────
+# ── Default multi-scale config ───────────────────────────────────────────────
 #
-# sigma=0.5, size=3  → fine:   enforces correct local dot density
-# sigma=1.5, size=9  → medium: enforces texture quality (dithering grain)
-# sigma=4.0, size=25 → coarse: enforces large-area tone accuracy
+#   (sigma, kernel_size, weight)
 #
-_SCALES = [
+# Fine   (σ=0.5):  correct local dot density
+# Medium (σ=1.5):  dithering texture / grain quality
+# Coarse (σ=4.0):  large-area tone accuracy
+#
+DEFAULT_SCALES = [
     (0.5,  3),
     (1.5,  9),
     (4.0, 25),
 ]
+DEFAULT_WEIGHTS = [1.0, 1.0, 1.0]
 
 
 class HVSLoss(nn.Module):
     """
-    Multi-scale perceptual dithering loss.
+    Multi-scale perceptual dithering loss with per-scale weights.
 
     Binarises the prediction with a straight-through estimator, then blurs
     both the binary output and the continuous gray input with Gaussians at
-    multiple spatial scales.  MSE is computed at each scale and summed.
+    multiple spatial scales.  Weighted MSE is computed at each scale.
 
-    Fine scale  (σ=0.5): every dot must contribute correct local brightness.
-    Medium scale (σ=1.5): dot *patterns* must look uniform, not clumpy.
-    Coarse scale (σ=4.0): large-area tone must match the original image.
-
-    Together these produce output quality comparable to Floyd-Steinberg
-    without ever needing to match an FS target pixel-for-pixel.
+    Args:
+        scales:  list of (sigma, kernel_size) tuples
+        weights: list of per-scale loss multipliers, same length as scales.
+                 [1,1,1] = balanced, [4,1,1] = emphasize fine dots,
+                 [1,1,4] = emphasize smooth tone, etc.
     """
 
-    def __init__(self, scales: list[tuple[float, int]] | None = None):
+    def __init__(
+        self,
+        scales: list[tuple[float, int]] | None = None,
+        weights: list[float] | None = None,
+    ):
         super().__init__()
         if scales is None:
-            scales = _SCALES
+            scales = DEFAULT_SCALES
+        if weights is None:
+            weights = DEFAULT_WEIGHTS
 
-        kernels = []
+        assert len(weights) == len(scales), \
+            f"weights length ({len(weights)}) must match scales length ({len(scales)})"
+
+        self.scale_weights = weights
         pads = []
-        for sigma, size in scales:
+        for i, (sigma, size) in enumerate(scales):
             k = _make_gaussian(sigma, size)
-            kernels.append(torch.from_numpy(k).unsqueeze(0).unsqueeze(0))
+            self.register_buffer(f"kernel_{i}", torch.from_numpy(k).unsqueeze(0).unsqueeze(0))
             pads.append(size // 2)
 
-        # Store as buffers so they move to the right device with model.to(device)
-        for i, k in enumerate(kernels):
-            self.register_buffer(f"kernel_{i}", k)
         self.pads = pads
         self.n_scales = len(scales)
 
@@ -82,6 +90,8 @@ class HVSLoss(nn.Module):
 
         loss = torch.tensor(0.0, device=logits.device)
         for i in range(self.n_scales):
-            loss = loss + F.mse_loss(self._filter(binary, i), self._filter(gray, i))
+            w = self.scale_weights[i]
+            if w > 0:
+                loss = loss + w * F.mse_loss(self._filter(binary, i), self._filter(gray, i))
 
         return loss
